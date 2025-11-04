@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 from openai import OpenAI
+import io
 
 # --- Titre principal ---
-st.title("Assistant de planification VS")
+st.title("Assistant de planification VS – version API fichiers")
 
 # --- Initialisation du client OpenAI ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -17,7 +18,6 @@ model_choice = st.selectbox(
         "gpt-5-pro",
         "gpt-5-mini",
         "gpt-5-nano",
-        "gpt-5-codex",
         "gpt-4-turbo",
         "gpt-4o-mini",
     ],
@@ -35,7 +35,6 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Liste des fichiers attendus
 required_files = {
     "of_cdt.csv",
     "capacites_machine_jour.csv",
@@ -44,7 +43,9 @@ required_files = {
     "kits_pairs - of_cdt.csv"
 }
 
-# --- Lecture et affichage des fichiers ---
+# Dictionnaire pour stocker les file_id OpenAI
+file_ids = {}
+
 if uploaded_files:
     uploaded_names = {f.name for f in uploaded_files}
     missing = required_files - uploaded_names
@@ -57,15 +58,24 @@ if uploaded_files:
 
     if not missing:
         st.success("Tous les fichiers requis ont été téléversés.")
-        st.session_state["uploaded_data"] = {}
         for file in uploaded_files:
             try:
+                # Lecture et aperçu
                 df = pd.read_csv(file)
-                st.session_state["uploaded_data"][file.name] = df
                 st.write(f"{file.name} — {df.shape[0]} lignes, {df.shape[1]} colonnes")
                 st.dataframe(df.head(3))
+
+                # Conversion en mémoire binaire (BytesIO)
+                file.seek(0)
+                file_bytes = io.BytesIO(file.read())
+
+                # Upload vers OpenAI
+                uploaded = client.files.create(file=file_bytes, purpose="assistants")
+                file_ids[file.name] = uploaded.id
+                st.caption(f"Fichier {file.name} chargé dans OpenAI (id: {uploaded.id})")
+
             except Exception as e:
-                st.error(f"Erreur lors de la lecture de {file.name} : {e}")
+                st.error(f"Erreur lors de la lecture ou de l'upload de {file.name} : {e}")
 else:
     st.info("Glissez-déposez les 5 fichiers CSV ci-dessus pour commencer.")
 
@@ -78,8 +88,8 @@ if "conversation" not in st.session_state:
             "role": "system",
             "content": (
                 "Tu es l'assistant planificateur de production de VitalScientific. "
-                "Tu aides à construire, expliquer et ajuster le planning de production "
-                "à partir des fichiers fournis (of_cdt, capacités machines, opérateurs, etc.). "
+                "Tu disposes des fichiers CSV uploadés via l'API OpenAI et tu dois t’en servir "
+                "pour générer et expliquer le planning de production (planning.csv, alertes.csv, Gantt). "
                 "Tu justifies toujours tes choix de planification de manière claire et professionnelle."
             )
         }
@@ -97,7 +107,7 @@ for msg in st.session_state["conversation"]:
 # --- Zone de saisie utilisateur ---
 user_input = st.text_area(
     "Posez une question ou donnez une instruction à l'assistant :",
-    placeholder="Exemple : Pourquoi as-tu placé l'OF 22 vendredi matin ?"
+    placeholder="Exemple : Génère le planning de la semaine 35 à partir des fichiers fournis."
 )
 
 col1, col2 = st.columns(2)
@@ -113,17 +123,21 @@ if reset_btn:
 
 # --- Envoi de la requête ---
 if send_btn and user_input.strip():
-    st.session_state["conversation"].append({"role": "user", "content": user_input})
-    with st.spinner(f"Le modèle {model_choice} réfléchit..."):
-        try:
-            response = client.chat.completions.create(
-                model=model_choice,
-                messages=st.session_state["conversation"]
-            )
-            answer = response.choices[0].message.content
-            st.session_state["conversation"].append({"role": "assistant", "content": answer})
-            st.success(answer)
-        except Exception as e:
-            st.error(f"Erreur lors de la requête : {e}")
+    if not file_ids:
+        st.warning("Veuillez d'abord téléverser les fichiers CSV nécessaires.")
+    else:
+        st.session_state["conversation"].append({"role": "user", "content": user_input})
+        with st.spinner(f"Le modèle {model_choice} réfléchit..."):
+            try:
+                response = client.chat.completions.create(
+                    model=model_choice,
+                    messages=st.session_state["conversation"],
+                    file_ids=list(file_ids.values())
+                )
+                answer = response.choices[0].message.content
+                st.session_state["conversation"].append({"role": "assistant", "content": answer})
+                st.success(answer)
+            except Exception as e:
+                st.error(f"Erreur lors de la requête : {e}")
 
-st.caption("💡 La discussion est mémorisée tant que la session reste ouverte. Vous pouvez la réinitialiser à tout moment.")
+st.caption("💡 Les fichiers sont transmis via l'API OpenAI et la discussion reste mémorisée tant que la session est ouverte.")
