@@ -1,27 +1,56 @@
 import streamlit as st
 from openai import OpenAI
 
-# Titre principal
-st.title("Assistant de planification VS – Test OpenAI")
+# --- Titre principal ---
+st.title("🧠 Assistant de planification VS – Test OpenAI")
 
-# Initialisation du client OpenAI
+# --- Initialisation du client OpenAI ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Zone de saisie et bouton principal
-prompt = st.text_area("Posez une question à GPT :", "Dis bonjour à VitalScientific !")
+# --- Sélecteur de modèle ---
+st.subheader("⚙️ Choisissez le modèle OpenAI")
+model_choice = st.selectbox(
+    "Modèle utilisé :",
+    [
+        "gpt-5-chat-latest",   # valeur par défaut
+        "gpt-5-pro",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-5-codex",
+        "gpt-4-turbo",
+        "gpt-4o-mini"
+    ],
+    index=0  # sélection par défaut (gpt-5-chat-latest)
+)
 
-if st.button("Envoyer"):
-    with st.spinner("Réflexion en cours..."):
-        response = client.chat.completions.create(
-            model="gpt-4-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        st.success(response.choices[0].message.content)
+# --- Zone de saisie du prompt ---
+prompt = st.text_area(
+    "📝 Saisissez votre message ici :",
+    placeholder="Exemple : Analyse ce planning de production ou Dis bonjour à VitalScientific..."
+)
 
-# --- Nouvelle section : Lister les modèles disponibles ---
+# --- Bouton d'envoi ---
+if st.button("🚀 Envoyer la requête"):
+    if not prompt.strip():
+        st.warning("Merci de saisir un message avant d’envoyer.")
+    else:
+        with st.spinner(f"Le modèle {model_choice} réfléchit..."):
+            try:
+                response = client.chat.completions.create(
+                    model=model_choice,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                message = response.choices[0].message.content
+                st.success(message)
+                st.caption(f"💡 Réponse générée par le modèle : {model_choice}")
+            except Exception as e:
+                st.error(f"Erreur : {e}")
+
+# --- Ligne de séparation ---
 st.divider()
-st.subheader("🔍 Lister les modèles disponibles sur ce compte")
 
+# --- Option : lister les modèles disponibles ---
+st.subheader("🔍 Lister les modèles accessibles")
 if st.button("Afficher la liste des modèles OpenAI"):
     with st.spinner("Chargement des modèles..."):
         try:
