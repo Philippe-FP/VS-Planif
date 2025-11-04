@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from openai import OpenAI
 import io
+st.write(f"Version OpenAI installée : {openai.__version__}")
 
 # --- Titre principal ---
 st.title("Assistant de planification VS – version API fichiers")
