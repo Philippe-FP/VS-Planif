@@ -1,3 +1,31 @@
+import streamlit as st
+import pandas as pd
+from openai import OpenAI
+
+# --- Titre principal ---
+st.title("Assistant de planification VS")
+
+# --- Initialisation du client OpenAI ---
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# --- Sélecteur de modèle ---
+st.subheader("Choisissez le modèle OpenAI")
+model_choice = st.selectbox(
+    "Modèle utilisé :",
+    [
+        "gpt-5-chat-latest",
+        "gpt-5-pro",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-5-codex",
+        "gpt-4-turbo",
+        "gpt-4o-mini",
+    ],
+    index=0,
+)
+
+st.divider()
+
 # --- Étape 1 : Upload des fichiers CSV nécessaires ---
 st.subheader("Fichiers d'entrée requis pour la planification")
 
@@ -37,3 +65,29 @@ if uploaded_files:
                 st.error(f"Erreur lors de la lecture de {file.name} : {e}")
 else:
     st.info("Glissez-déposez les 5 fichiers CSV ci-dessus pour commencer.")
+
+st.divider()
+
+# --- Test rapide du modèle (facultatif) ---
+st.subheader("Test rapide du modèle OpenAI")
+
+prompt = st.text_area(
+    "Saisissez une instruction à envoyer au modèle :",
+    placeholder="Ex : Dis bonjour à VitalScientific..."
+)
+
+if st.button("Envoyer au modèle"):
+    if not prompt.strip():
+        st.warning("Merci de saisir un message avant d’envoyer.")
+    else:
+        with st.spinner(f"Le modèle {model_choice} réfléchit..."):
+            try:
+                response = client.chat.completions.create(
+                    model=model_choice,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                message = response.choices[0].message.content
+                st.success(message)
+                st.caption(f"Réponse générée par le modèle : {model_choice}")
+            except Exception as e:
+                st.error(f"Erreur : {e}")
