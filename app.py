@@ -1,5 +1,5 @@
 # --- Étape 1 : Upload des fichiers CSV nécessaires ---
-st.subheader("📂 Fichiers d'entrée requis pour la planification")
+st.subheader("Fichiers d'entrée requis pour la planification")
 
 uploaded_files = st.file_uploader(
     "Téléversez ici les 5 fichiers CSV nécessaires :",
@@ -22,18 +22,18 @@ if uploaded_files:
     extra = uploaded_names - required_files
 
     if missing:
-        st.warning(f"⚠️ Fichiers manquants : {', '.join(missing)}")
+        st.warning(f"Fichiers manquants : {', '.join(missing)}")
     if extra:
-        st.info(f"ℹ️ Fichiers inattendus : {', '.join(extra)}")
+        st.info(f"Fichiers inattendus : {', '.join(extra)}")
 
     if not missing:
-        st.success("✅ Tous les fichiers requis ont été téléversés.")
+        st.success("Tous les fichiers requis ont été téléversés.")
         for file in uploaded_files:
             try:
                 df = pd.read_csv(file)
-                st.write(f"**{file.name}** — {df.shape[0]} lignes, {df.shape[1]} colonnes")
+                st.write(f"{file.name} — {df.shape[0]} lignes, {df.shape[1]} colonnes")
                 st.dataframe(df.head(3))
             except Exception as e:
                 st.error(f"Erreur lors de la lecture de {file.name} : {e}")
 else:
-    st.info("🕐 Glissez-déposez les 5 fichiers CSV ci-dessus pour commencer.")
+    st.info("Glissez-déposez les 5 fichiers CSV ci-dessus pour commencer.")
