@@ -1,8 +1,17 @@
+# --- Imports principaux ---
 import streamlit as st
 import pandas as pd
-from openai import OpenAI
 import io
-st.write(f"Version OpenAI installée : {openai.__version__}")
+
+# --- Client OpenAI ---
+import openai
+from openai import OpenAI, __version__ as openai_version
+
+# --- Initialisation du client ---
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# --- Vérification technique ---
+st.write(f"✅ Version OpenAI installée : {openai_version}")
 
 # --- Titre principal ---
 st.title("Assistant de planification VS – version API fichiers")
