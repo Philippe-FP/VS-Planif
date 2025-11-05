@@ -113,4 +113,168 @@ def save_memory():
     except Exception as e:
         st.error(f"Erreur sauvegarde mémoire : {e}")
 
-def load
+def load_memory():
+    try:
+        if os.path.exists(MEMORY_FILE):
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                st.session_state["conversation"] = json.load(f)
+            st.toast("🔁 Mémoire rechargée.")
+    except Exception as e:
+        st.error(f"Erreur chargement mémoire : {e}")
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("💾 Sauvegarder la mémoire"):
+        save_memory()
+with col2:
+    if st.button("🔁 Recharger la mémoire"):
+        load_memory()
+with col3:
+    if st.button("🗑️ Réinitialiser la mémoire"):
+        st.session_state["conversation"] = st.session_state["conversation"][:1]
+        st.experimental_rerun()
+
+st.divider()
+
+# ================================
+# ÉTAPE 3 – Génération du planning (Assistants API)
+# ================================
+st.subheader("🧮 Génération du planning")
+
+instruction = st.text_area(
+    "Consigne à l'assistant :",
+    placeholder="Exemple : Génère le planning de la semaine 35 à partir des fichiers fournis."
+)
+
+if st.button("🚀 Générer le planning"):
+    if not uploaded_files:
+        st.warning("Veuillez d'abord téléverser les fichiers CSV nécessaires.")
+    elif not instruction.strip():
+        st.warning("Veuillez saisir une instruction de planification.")
+    else:
+        # --- Nouvelle logique : API Assistants ---
+        try:
+            # 1️⃣ Créer l'assistant (une seule fois)
+            if "assistant_id" not in st.session_state:
+                with st.spinner("Initialisation de l'assistant de planification..."):
+                    assistant = client.beta.assistants.create(
+                        name="Assistant Planification VS",
+                        instructions=(
+                            "Tu es l'assistant planificateur de production de VitalScientific. "
+                            "Tu planifies à partir des CSV fournis (of_cdt, capacités, opérateurs...) "
+                            "en appliquant les règles du prompt V9.1. "
+                            "Tu expliques clairement tes choix et génères un résumé structuré."
+                        ),
+                        model=model_choice,
+                        tools=[{"type": "code_interpreter"}]
+                    )
+                    st.session_state["assistant_id"] = assistant.id
+                    st.toast("🧠 Assistant créé")
+
+            # 2️⃣ Créer un thread (mémoire utilisateur)
+            if "thread_id" not in st.session_state:
+                thread = client.beta.threads.create()
+                st.session_state["thread_id"] = thread.id
+
+            # 3️⃣ Ajouter le message utilisateur dans le thread
+            client.beta.threads.messages.create(
+                thread_id=st.session_state["thread_id"],
+                role="user",
+                content=instruction,
+                file_ids=list(file_ids.values()) if file_ids else None
+            )
+
+            # 4️⃣ Lancer le run
+            with st.spinner("Le modèle GPT-5 exécute la planification..."):
+                run = client.beta.threads.runs.create(
+                    thread_id=st.session_state["thread_id"],
+                    assistant_id=st.session_state["assistant_id"]
+                )
+
+                # Attente de fin d'exécution
+                while True:
+                    run = client.beta.threads.runs.retrieve(
+                        thread_id=st.session_state["thread_id"],
+                        run_id=run.id
+                    )
+                    if run.status == "completed":
+                        break
+                    elif run.status in ["failed", "cancelled", "expired"]:
+                        st.error(f"Échec du run ({run.status})")
+                        break
+                    time.sleep(2)
+
+            # 5️⃣ Récupérer et afficher la réponse
+            messages = client.beta.threads.messages.list(
+                thread_id=st.session_state["thread_id"]
+            )
+            for m in messages.data:
+                if m.role == "assistant":
+                    for content in m.content:
+                        if content.type == "text":
+                            st.markdown(content.text.value)
+
+        except Exception as e:
+            st.error(f"Erreur lors du run de l'assistant : {e}")
+
+st.divider()
+
+# ================================
+# ÉTAPE 4 – Discussion explicative (même thread)
+# ================================
+st.subheader("💬 Discussion explicative sur le planning")
+
+user_question = st.text_area(
+    "Posez votre question sur le planning généré :",
+    placeholder="Exemple : Pourquoi l’OF 22 est-il planifié vendredi matin ?"
+)
+
+if st.button("Envoyer ma question"):
+    if not user_question.strip():
+        st.warning("Veuillez saisir une question.")
+    else:
+        try:
+            # Ajouter la question dans le même thread
+            client.beta.threads.messages.create(
+                thread_id=st.session_state["thread_id"],
+                role="user",
+                content=user_question
+            )
+
+            with st.spinner("L'assistant prépare sa réponse..."):
+                run = client.beta.threads.runs.create(
+                    thread_id=st.session_state["thread_id"],
+                    assistant_id=st.session_state["assistant_id"]
+                )
+
+                # Attente de fin
+                while True:
+                    run = client.beta.threads.runs.retrieve(
+                        thread_id=st.session_state["thread_id"],
+                        run_id=run.id
+                    )
+                    if run.status == "completed":
+                        break
+                    elif run.status in ["failed", "cancelled", "expired"]:
+                        st.error(f"Échec du run ({run.status})")
+                        break
+                    time.sleep(2)
+
+            # Affichage de la réponse
+            messages = client.beta.threads.messages.list(
+                thread_id=st.session_state["thread_id"]
+            )
+            for m in messages.data:
+                if m.role == "assistant":
+                    for content in m.content:
+                        if content.type == "text":
+                            st.markdown(content.text.value)
+
+        except Exception as e:
+            st.error(f"Erreur lors de la requête : {e}")
+
+st.caption(
+    "💡 Les CSV sont transmis via l'API Assistants. "
+    "Le même thread conserve la mémoire de la session, "
+    "permettant des échanges explicatifs persistants comme dans ChatGPT."
+)
