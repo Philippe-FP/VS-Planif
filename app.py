@@ -1,6 +1,6 @@
 # ================================
 #  Assistant Planification VS – GPT-5
-#  Streamlit + API OpenAI + Persistance
+#  Option A : chat.completions (sans Assistants API)
 # ================================
 
 # --- Imports principaux ---
@@ -13,15 +13,12 @@ from openai import OpenAI, __version__ as openai_version
 
 # --- Initialisation du client OpenAI ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-# --- Informations techniques ---
 st.write(f"✅ Version OpenAI installée : {openai_version}")
 
 # --- Titre principal ---
-st.title("Assistant de planification VS – version API fichiers")
+st.title("Assistant de planification VS – version stable (chat completions)")
 
 # --- Sélecteur de modèle ---
-st.subheader("Choisissez le modèle OpenAI")
 model_choice = st.selectbox(
     "Modèle utilisé :",
     [
@@ -56,7 +53,7 @@ required_files = {
     "kits_pairs - of_cdt.csv"
 }
 
-file_ids = {}
+csv_previews = {}
 
 if uploaded_files:
     uploaded_names = {f.name for f in uploaded_files}
@@ -69,28 +66,22 @@ if uploaded_files:
         st.info(f"Fichiers inattendus : {', '.join(extra)}")
 
     if not missing:
-        st.success("✅ Tous les fichiers requis ont été téléversés et vont être transmis à OpenAI.")
+        st.success("✅ Tous les fichiers requis ont été téléversés.")
         for file in uploaded_files:
             try:
                 df = pd.read_csv(file)
                 st.write(f"**{file.name}** — {df.shape[0]} lignes × {df.shape[1]} colonnes")
                 st.dataframe(df.head(3))
-
-                # Conversion binaire + upload vers OpenAI
-                file.seek(0)
-                file_bytes = io.BytesIO(file.read())
-                uploaded = client.files.create(file=file_bytes, purpose="assistants")
-                file_ids[file.name] = uploaded.id
-                st.caption(f"📤 Fichier {file.name} chargé (id: {uploaded.id})")
+                csv_previews[file.name] = df.head(10).to_csv(index=False)
             except Exception as e:
-                st.error(f"Erreur lors du traitement de {file.name} : {e}")
+                st.error(f"Erreur lors de la lecture de {file.name} : {e}")
 else:
     st.info("Glissez-déposez les 5 fichiers CSV ci-dessus pour commencer.")
 
 st.divider()
 
 # ================================
-# ÉTAPE 2 – Initialisation mémoire / contexte
+# ÉTAPE 2 – Mémoire conversationnelle
 # ================================
 if "conversation" not in st.session_state:
     st.session_state["conversation"] = [
@@ -98,10 +89,9 @@ if "conversation" not in st.session_state:
             "role": "system",
             "content": (
                 "Tu es l'assistant planificateur de production de VitalScientific. "
-                "Tu disposes des fichiers CSV chargés (of_cdt, capacités, opérateurs...) "
-                "et tu t'en sers pour générer, expliquer et justifier le planning "
-                "de production (planning.csv, alertes.csv, Gantt). "
-                "Tu raisonnes toujours comme un expert industriel, clair et professionnel."
+                "Tu dois utiliser les extraits de CSV fournis dans les messages ci-dessous "
+                "pour calculer, expliquer et justifier un planning de production. "
+                "Tu raisonnes comme un expert en ordonnancement industriel."
             ),
         }
     ]
@@ -125,7 +115,6 @@ def load_memory():
     except Exception as e:
         st.error(f"Erreur chargement mémoire : {e}")
 
-# --- Contrôles mémoire ---
 col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("💾 Sauvegarder la mémoire"):
@@ -138,10 +127,12 @@ with col3:
         st.session_state["conversation"] = st.session_state["conversation"][:1]
         st.experimental_rerun()
 
+st.divider()
+
 # ================================
 # ÉTAPE 3 – Génération du planning
 # ================================
-st.subheader("🧮 Génération du planning de production")
+st.subheader("🧮 Génération du planning")
 
 instruction = st.text_area(
     "Consigne à l'assistant :",
@@ -149,18 +140,23 @@ instruction = st.text_area(
 )
 
 if st.button("🚀 Générer le planning"):
-    if not file_ids:
+    if not uploaded_files:
         st.warning("Veuillez d'abord téléverser les fichiers CSV nécessaires.")
     elif not instruction.strip():
         st.warning("Veuillez saisir une instruction de planification.")
     else:
-        st.session_state["conversation"].append({"role": "user", "content": instruction})
+        # Concatène les extraits CSV dans le prompt
+        csv_context = "\n\n".join(
+            [f"Extrait du fichier {name} :\n{content}" for name, content in csv_previews.items()]
+        )
+        full_prompt = instruction + "\n\n" + csv_context
+
+        st.session_state["conversation"].append({"role": "user", "content": full_prompt})
         with st.spinner(f"Le modèle {model_choice} réfléchit..."):
             try:
                 response = client.chat.completions.create(
                     model=model_choice,
-                    messages=st.session_state["conversation"],
-                    file_ids=list(file_ids.values())
+                    messages=st.session_state["conversation"]
                 )
                 answer = response.choices[0].message.content
                 st.session_state["conversation"].append({"role": "assistant", "content": answer})
@@ -172,7 +168,7 @@ if st.button("🚀 Générer le planning"):
 st.divider()
 
 # ================================
-# ÉTAPE 4 – Discussion explicative persistante
+# ÉTAPE 4 – Discussion explicative
 # ================================
 st.subheader("💬 Discussion explicative sur le planning")
 
@@ -196,8 +192,7 @@ if st.button("Envoyer ma question"):
             try:
                 response = client.chat.completions.create(
                     model=model_choice,
-                    messages=st.session_state["conversation"],
-                    file_ids=list(file_ids.values())
+                    messages=st.session_state["conversation"]
                 )
                 answer = response.choices[0].message.content
                 st.session_state["conversation"].append({"role": "assistant", "content": answer})
@@ -205,6 +200,8 @@ if st.button("Envoyer ma question"):
             except Exception as e:
                 st.error(f"Erreur lors de la requête : {e}")
 
-st.caption("💡 Les fichiers sont transmis via l'API OpenAI. "
-           "La discussion et la mémoire sont conservées tant que la session est ouverte "
-           "et peuvent être sauvegardées/rechargées pour un usage ultérieur.")
+st.caption(
+    "💡 Les CSV sont transmis sous forme d’extraits intégrés au prompt. "
+    "La conversation et la mémoire sont conservées tant que la session est ouverte "
+    "et peuvent être sauvegardées/rechargées pour un usage ultérieur."
+)
